@@ -1,30 +1,18 @@
-//
-//  ContentView.swift
-//  LokumLeyla
-//
-//  Created by Deniz zengin on 12.06.2025.
-//
-
-import SwiftUI
-
-// SwiftUI UDP Chat using Network.framework
-// Save this as ContentView.swift in a SwiftUI Xcode project
-
-// SwiftUI UDP Chat using Network.framework
-// Save this as ContentView.swift in a SwiftUI Xcode project
+// SwiftUI UDP Chat using Network.framework for macOS
+// Save this as ContentView.swift in a SwiftUI macOS Xcode project
 
 import SwiftUI
 import Network
 
 class UDPChatManager: ObservableObject {
-    @Published var messages: [String] = []
+    @Published var messages: [ChatMessage] = []
     @Published var remoteIP: String = ""
 
-    private var connection: NWConnection?
     private let port: NWEndpoint.Port = 12345
     private var listener: NWListener?
 
     init() {
+        loadMessages()
         startListening()
     }
 
@@ -48,7 +36,9 @@ class UDPChatManager: ObservableObject {
         connection.receiveMessage { [weak self] (data, _, _, error) in
             if let data = data, let message = String(data: data, encoding: .utf8) {
                 DispatchQueue.main.async {
-                    self?.messages.append("Onlar: \(message)")
+                    let chatMessage = ChatMessage(content: message, isSentByMe: false, timestamp: Date())
+                    self?.messages.append(chatMessage)
+                    self?.saveMessages()
                 }
             }
             if error == nil {
@@ -64,19 +54,43 @@ class UDPChatManager: ObservableObject {
         connection.start(queue: .main)
 
         let data = message.data(using: .utf8) ?? Data()
-        connection.send(content: data, completion: .contentProcessed({ error in
+        connection.send(content: data, completion: .contentProcessed({ [weak self] error in
             if error == nil {
                 DispatchQueue.main.async {
-                    self.messages.append("Sen: \(message)")
+                    let chatMessage = ChatMessage(content: message, isSentByMe: true, timestamp: Date())
+                    self?.messages.append(chatMessage)
+                    self?.saveMessages()
                 }
             }
         }))
     }
+
+    func saveMessages() {
+        let encoder = JSONEncoder()
+        if let data = try? encoder.encode(messages) {
+            UserDefaults.standard.set(data, forKey: "chatMessages")
+        }
+    }
+
+    func loadMessages() {
+        if let data = UserDefaults.standard.data(forKey: "chatMessages"),
+           let savedMessages = try? JSONDecoder().decode([ChatMessage].self, from: data) {
+            self.messages = savedMessages
+        }
+    }
+}
+
+struct ChatMessage: Identifiable, Codable, Hashable {
+    let id = UUID()
+    let content: String
+    let isSentByMe: Bool
+    let timestamp: Date
 }
 
 struct ContentView: View {
     @StateObject var chatManager = UDPChatManager()
     @State private var inputMessage: String = ""
+    @Namespace var bottomID
 
     var body: some View {
         VStack(spacing: 10) {
@@ -84,41 +98,63 @@ struct ContentView: View {
                 .textFieldStyle(RoundedBorderTextFieldStyle())
                 .padding(.horizontal)
 
-            ScrollView {
-                VStack(alignment: .leading, spacing: 5) {
-                    ForEach(chatManager.messages, id: \ .self) { message in
-                        Text(message.replacingOccurrences(of: "Sen: ", with: "").replacingOccurrences(of: "Onlar: ", with: ""))
-                            .padding(10)
-                            .foregroundColor(.white)
-                            .background(message.hasPrefix("Sen") ? Color.blue : Color.pink)
-                            .cornerRadius(12)
-                            .frame(maxWidth: .infinity, alignment: message.hasPrefix("Sen") ? .trailing : .leading)
-                            .padding(.horizontal, 10)
+            ScrollViewReader { proxy in
+                ScrollView {
+                    VStack(alignment: .leading, spacing: 8) {
+                        ForEach(chatManager.messages) { message in
+                            VStack(alignment: message.isSentByMe ? .trailing : .leading) {
+                                Text(message.content)
+                                    .padding(10)
+                                    .foregroundColor(.white)
+                                    .background(message.isSentByMe ? Color.blue : Color.pink)
+                                    .cornerRadius(10)
+                                    .frame(maxWidth: .infinity, alignment: message.isSentByMe ? .trailing : .leading)
+                                Text(formattedDate(message.timestamp))
+                                    .font(.caption2)
+                                    .foregroundColor(.gray)
+                                    .frame(maxWidth: .infinity, alignment: message.isSentByMe ? .trailing : .leading)
+                            }
+                        }
+                        Spacer().id(bottomID)
+                    }
+                    .padding(.horizontal, 10)
+                    .onChange(of: chatManager.messages.count) { _ in
+                        withAnimation {
+                            proxy.scrollTo(bottomID, anchor: .bottom)
+                        }
                     }
                 }
-            }.padding(.vertical)
+            }
+            .frame(minHeight: 300)
 
             HStack {
-                TextField("Mesaj yaz...", text: $inputMessage, onCommit: {
-                    sendMessage()
-                })
-                .textFieldStyle(RoundedBorderTextFieldStyle())
-                .padding(.leading)
+                TextField("Mesaj yaz...", text: $inputMessage)
+                    .textFieldStyle(RoundedBorderTextFieldStyle())
+                    .onSubmit {
+                        sendMessage()
+                    }
 
                 Button("Gönder") {
                     sendMessage()
                 }
                 .disabled(inputMessage.isEmpty || chatManager.remoteIP.isEmpty)
-                .padding(.trailing)
             }
-            .padding(.bottom)
+            .padding(.horizontal)
         }
+        .padding()
+        .frame(minWidth: 500, minHeight: 600)
     }
 
     func sendMessage() {
-        guard !inputMessage.isEmpty else { return }
-        chatManager.send(message: inputMessage)
+        guard !inputMessage.trimmingCharacters(in: .whitespaces).isEmpty else { return }
+        chatManager.send(message: inputMessage.trimmingCharacters(in: .whitespaces))
         inputMessage = ""
+    }
+
+    func formattedDate(_ date: Date) -> String {
+        let formatter = DateFormatter()
+        formatter.dateFormat = "HH:mm"
+        return formatter.string(from: date)
     }
 }
 
