@@ -10,13 +10,16 @@ import SwiftUI
 // SwiftUI UDP Chat using Network.framework
 // Save this as ContentView.swift in a SwiftUI Xcode project
 
+// SwiftUI UDP Chat using Network.framework
+// Save this as ContentView.swift in a SwiftUI Xcode project
+
 import SwiftUI
 import Network
 
 class UDPChatManager: ObservableObject {
     @Published var messages: [String] = []
     @Published var remoteIP: String = ""
-    
+
     private var connection: NWConnection?
     private let port: NWEndpoint.Port = 12345
     private var listener: NWListener?
@@ -80,32 +83,42 @@ struct ContentView: View {
             TextField("Karşı tarafın IP adresi", text: $chatManager.remoteIP)
                 .textFieldStyle(RoundedBorderTextFieldStyle())
                 .padding(.horizontal)
-                
+
             ScrollView {
                 VStack(alignment: .leading, spacing: 5) {
                     ForEach(chatManager.messages, id: \ .self) { message in
-                        Text(message)
+                        Text(message.replacingOccurrences(of: "Sen: ", with: "").replacingOccurrences(of: "Onlar: ", with: ""))
+                            .padding(10)
+                            .foregroundColor(.white)
+                            .background(message.hasPrefix("Sen") ? Color.blue : Color.pink)
+                            .cornerRadius(12)
                             .frame(maxWidth: .infinity, alignment: message.hasPrefix("Sen") ? .trailing : .leading)
-                            .padding(8)
-                            .background(message.hasPrefix("Sen") ? Color.green.opacity(0.2) : Color.gray.opacity(0.2))
-                            .cornerRadius(8)
+                            .padding(.horizontal, 10)
                     }
                 }
-            }.padding(.horizontal)
-            
+            }.padding(.vertical)
+
             HStack {
-                TextField("Mesaj yaz...", text: $inputMessage)
-                    .textFieldStyle(RoundedBorderTextFieldStyle())
-                
+                TextField("Mesaj yaz...", text: $inputMessage, onCommit: {
+                    sendMessage()
+                })
+                .textFieldStyle(RoundedBorderTextFieldStyle())
+                .padding(.leading)
+
                 Button("Gönder") {
-                    chatManager.send(message: inputMessage)
-                    inputMessage = ""
+                    sendMessage()
                 }
                 .disabled(inputMessage.isEmpty || chatManager.remoteIP.isEmpty)
+                .padding(.trailing)
             }
-            .padding(.horizontal)
+            .padding(.bottom)
         }
-        .padding()
+    }
+
+    func sendMessage() {
+        guard !inputMessage.isEmpty else { return }
+        chatManager.send(message: inputMessage)
+        inputMessage = ""
     }
 }
 
